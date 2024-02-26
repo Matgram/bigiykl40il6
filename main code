@@ -1,0 +1,2261 @@
+d<-read.csv2("data/20231221 CA199 YKL40 IL6 BIGI data.csv")
+
+d1=d%>%
+  mutate(across(c("proname","sex","stage","t","n","m","locprim","primres","locmet","treat","rec","prog","death","ps","kras","nras","allras","BRAFVal600Glu","neoadj","prevcanc"),as.factor))%>%
+  mutate(recdate=as.POSIXlt(recdate,format="%d-%m-%Y"))%>%
+  mutate(progdate=as.POSIXlt(progdate,format="%d-%m-%Y"))%>%
+  mutate(deathdate=as.POSIXlt(deathdate,format="%d-%m-%Y"))%>%
+  mutate(neoadjdate=as.POSIXlt(neoadjdate,format="%d-%m-%Y"))%>%
+  mutate(prevcancdate=as.POSIXlt(prevcancdate,format="%d-%m-%Y"))%>%
+  mutate(b1date=as.POSIXlt(b1date,format="%d-%m-%Y"))%>%
+  mutate(fudate=as.POSIXlt(fudate,format="%d-%m-%Y"))%>%
+  mutate(across(c("cea","il6","ykl40","ca199"),as.numeric))%>%
+  mutate(cancwithin5=as.factor(cancwithin5))
+
+
+
+
+dnew=d1%>%
+  filter(is.na(neoadj))%>%
+  filter(is.na(cancwithin5)|cancwithin5==0)%>%
+  filter(is.na(exclude))%>%
+  mutate(HAI1HAI2=as.factor(if_else(proname=="HAI1"|proname=="HAI2",1,0)))%>%
+  mutate(BIORECRECCET=as.factor(if_else(proname=="BIOREC"|proname=="RECCET",1,0)))%>%
+  mutate(ceahigh=as.factor(if_else(cea>5,"> 5 ng/ml",if_else(cea<5|cea==5,"</= 5 ng/mL",NA))))%>%
+  mutate(ca199high=as.factor(if_else(ca199>37,"> 37 U/ml",if_else(ca199<37|ca199==37,"</= 37 U/mL",NA))))%>%
+  mutate(log2cea=as.numeric(log(cea,2)))%>%
+  mutate(log2ca199=as.numeric(log(ca199,2)))%>%
+  mutate(side=as.factor(if_else(locprim==1|locprim==2|locprim==3|locprim==4|locprim==5|locprim==6, "Right",
+                                if_else(locprim==7|locprim==8|locprim==9|locprim==10,"Left","Other"))))%>%
+  mutate(survival=as.numeric(if_else(death==1,1,0)))%>%
+  mutate(prog=as.numeric(prog))%>%
+  mutate(rectime=as.numeric((difftime(recdate,b1date,units="days"))/365.24))%>%
+  mutate(progtime=as.numeric((difftime(progdate,b1date,units="days"))/365.24))%>%
+  mutate(deathtime=as.numeric((difftime(deathdate,b1date,units="days"))/365.24))%>%
+  mutate(death=as.numeric(death))%>%
+  mutate(nelevated=as.factor(if_else(cea>5&ca199>37,"2 elevated markers",if_else(cea>5|ca199>37,"1 elevated marker",
+                                                                                 "0 elevated markers"))))%>%
+  mutate(rec=as.numeric(if_else(is.na(rec)==T,NA,if_else(rec=="1",2,1))))%>%
+  mutate(il6=as.numeric(il6)) %>% 
+  mutate(log2ykl40=as.numeric(log(ykl40,2)))%>%
+  mutate(log2il6=as.numeric(log(il6,2)))%>%
+  mutate(ykl40age=as.numeric(100/(1+(ykl40^(-3))*(1.062^age)*5000)))%>%
+  mutate(ykl40high=as.factor(if_else(ykl40age>95,"YKL-40>95% percentile","YKL-40<95% percentile"))) %>% 
+  mutate(il6high=as.factor(if_else(il6>4.92,"IL-6>4.92pg/mL",if_else(il6<4.92|il6==4.92,"IL-6<4.92 pg/mL",NA))))%>%
+  mutate(nelevatedyi=as.factor(if_else(cea>5&ykl40age>95&il6>4.92,"3 elevated markers",
+                                       if_else(cea>5&ykl40age>95|ykl40age>95&il6>4.92|cea>5&il6>4.92,"2 elevated markers",
+                                               if_else(ykl40age>95|il6>4.92|cea>5,"1 elevated markers","0 elevated markers")))))
+
+table(dnew$nelevatedyi)
+write.csv2(dnew,"nelevatedyi_check.csv")
+#Rebecca RFS dataset
+rebdnew=dnew%>%
+  filter(proname=="REBECCA")%>%
+  mutate(rectime=as.numeric((difftime(recdate,b1date,units="days"))/365.24))%>%
+  mutate(deathtime=as.numeric((difftime(deathdate,b1date,units="days"))/365.24))%>%
+  mutate(recnew=as.numeric(if_else(is.na(rectime)==T,rec,if_else(rectime>5,1,2))))%>%
+  mutate(recdate1=as.POSIXlt(if_else(rectime>5,
+                                     b1date+dyears(5),
+                                     if_else(deathtime>5, b1date+dyears(5),recdate))))%>%
+  mutate(recdate=as.POSIXlt(if_else(is.na(recdate)==T&deathtime>5,b1date+dyears(5),if_else(deathtime<5,deathdate,recdate))))%>%
+  mutate(rectimeold=as.numeric((difftime(recdate,b1date,units="days")/365.24)))%>%
+  mutate(recdate=as.POSIXlt(if_else(rectimeold>5,b1date+dyears(5),recdate)))%>%
+  mutate(rectimenew=as.numeric((difftime(recdate,b1date,units="days")/365.24)))
+
+
+#BIOREC dataset
+
+biorec=dnew%>%
+  filter(proname=="BIOREC"&is.na(ceahigh)==F)
+
+#Check for NA's
+nacheck=dnew%>%
+  filter(is.na(cea)|is.na(ca199))
+
+#Create dataset for BIOREC+RECCET
+drectal=dnew%>%
+  filter(BIORECRECCET==1)
+#Create dataset for HAI 1 + 2
+dhai=dnew%>%
+  filter(HAI1HAI2==1)
+
+#Create correlogram
+corbigiykl40il6=dnew%>%
+  select(age,log2cea,log2ykl40,log2il6,ps,kras)%>%
+  filter(!is.na(kras))%>%
+  filter(!is.na(ps))%>%
+  filter(!is.na(log2cea))%>%
+  filter(!is.na(log2ykl40))%>%
+  filter(!is.na(log2il6))%>%
+  mutate(ps=as.numeric(ps))%>%
+  mutate(kras=as.numeric(kras))
+
+corbigiykl40il6spearm<-cor(corbigiykl40il6, method="s")
+p.matcorbigiykl40il6<-cor_pmat(corbigiykl40il6,method="s")
+corbigiykl40il6spearm
+
+corrplotbigiykl40il6<-myggcorrplot(corbigiykl40il6spearm,
+                            type="lower",
+                            lab=T,
+                            ggtheme = ggplot2::theme_classic,
+                            lab_size = 3,
+                            method="square",
+                            p.mat=p.matcorbigiykl40il6,
+                            insig="blank",
+                            lab.notsig = "NS",tl.cex=10)
+corrplotbigiykl40il6
+
+
+
+#Kaplan-Meier for whole cohort PFS
+
+#KM HAI 1 PFS
+hai1pfs<-survfit(Surv(progtime,prog)~1,data=subset(dnew,proname=="HAI1"))
+#KM HAI 1 PFS YKL-40
+hai1pfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=subset(dnew,proname=="HAI1"))
+hai1pfskmykl40<-ggsurvplot(hai1pfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Progression-free survival in HAI 1",xlab="Time (years)",
+                         ylab="Progression-free survival probability",
+                         legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai1pfskmykl40
+
+#KM HAI 1 PFS il6
+hai1pfsil6<-survfit(Surv(progtime,prog)~il6high,data=subset(dnew,proname=="HAI1"))
+hai1pfskmil6<-ggsurvplot(hai1pfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Progression-free survival in HAI 1",xlab="Time (years)",
+                           ylab="Progression-free survival probability",
+                           legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai1pfskmil6
+
+#KM HAI 1 PFS N elevated
+hai1pfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=subset(dnew,proname=="HAI1"))
+hai1pfskmneleyi<-ggsurvplot(hai1pfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Progression-free survival in HAI 1",xlab="Time (years)",
+                          ylab="Progression-free survival probability",
+                          legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai1pfskmneleyi
+
+#KM HAI 1 OS
+hai1os<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="HAI1"))
+hai1os
+#KM HAI 1 OS ykl40
+hai1osykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="HAI1"))
+hai1oskmykl40<-ggsurvplot(hai1osykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Overall survival in HAI 1",xlab="Time (years)",
+                        ylab="Overall survival probability",
+                        legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai1oskmykl40
+
+#KM HAI 1 OS il6
+hai1osil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="HAI1"))
+hai1oskmil6<-ggsurvplot(hai1osil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in HAI 1",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai1oskmil6
+
+#KM HAI 1 OS N elevated
+hai1osneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="HAI1"))
+hai1oskmneleyi<-ggsurvplot(hai1osneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in HAI 1",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai1oskmneleyi
+
+
+#KM HAI 2 PFS
+hai2pfs<-survfit(Surv(progtime,prog)~1,data=subset(dnew,proname=="HAI2"))
+hai2pfs
+#KM HAI 2 PFS ykl40
+hai2pfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=subset(dnew,proname=="HAI2"))
+hai2pfskmykl40<-ggsurvplot(hai2pfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Progression-free survival in HAI 2",xlab="Time (years)",
+                         ylab="Progression-free survival probability",
+                         legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai2pfskmykl40
+
+#KM HAI 2 PFS il6
+hai2pfsil6<-survfit(Surv(progtime,prog)~il6high,data=subset(dnew,proname=="HAI2"))
+hai2pfskmil6<-ggsurvplot(hai2pfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Progression-free survival in HAI 2",xlab="Time (years)",
+                           ylab="Progression-free survival probability",
+                           legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai2pfskmil6
+
+#KM HAI 2 PFS N elevated
+hai2pfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=subset(dnew,proname=="HAI2"))
+hai2pfskmneleyi<-ggsurvplot(hai2pfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Progression-free survival in HAI 2",xlab="Time (years)",
+                          ylab="Progression-free survival probability",
+                          legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai2pfskmneleyi
+
+#KM HAI 2 OS
+hai2os<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="HAI2"))
+hai2os
+#KM HAI 2 OS ykl40
+hai2osykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="HAI2"))
+hai2oskmykl40<-ggsurvplot(hai2osykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Overall survival in HAI 2",xlab="Time (years)",
+                        ylab="Overall survival probability",
+                        legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai2oskmykl40
+
+#KM HAI 2 OS il6
+hai2osil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="HAI2"))
+hai2oskmil6<-ggsurvplot(hai2osil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in HAI 2",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai2oskmil6
+
+#KM HAI 2 OS N elevated
+hai2osneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="HAI2"))
+hai2oskmneleyi<-ggsurvplot(hai2osneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in HAI 2",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai2oskmneleyi
+
+#KM HAI 1+2
+hai12pfs<-survfit(Surv(progtime,prog)~1,data=dhai)
+hai12pfs
+#KM HAI 1+2 PFS ykl40
+hai12pfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=dhai)
+hai12pfskmykl40<-ggsurvplot(hai12pfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Progression-free survival in HAI 1+2",xlab="Time (years)",
+                         ylab="Progression-free survival probability",
+                         legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai12pfskmykl40
+
+#KM HAI 1+2 PFS il6
+hai12pfsil6<-survfit(Surv(progtime,prog)~il6high,data=dhai)
+hai12pfskmil6<-ggsurvplot(hai12pfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Progression-free survival in HAI 1+2",xlab="Time (years)",
+                           ylab="Progression-free survival probability",
+                           legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai12pfskmil6
+
+#KM HAI 1+2 PFS N elevated
+hai12pfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=dhai)
+hai12pfskmneleyi<-ggsurvplot(hai12pfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Progression-free survival in HAI 1+2",xlab="Time (years)",
+                          ylab="Progression-free survival probability",
+                          legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai12pfskmneleyi
+
+#KM HAI 1+2 OS
+hai12os<-survfit(Surv(deathtime,death)~1,data=dhai)
+hai12os
+#KM HAI 1+2 OS ykl40
+hai12osykl40<-survfit(Surv(deathtime,death)~ykl40high,data=dhai)
+hai12oskmykl40<-ggsurvplot(hai12osykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Overall survival in HAI 1+2",xlab="Time (years)",
+                        ylab="Overall survival probability",
+                        legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+hai12oskmykl40
+
+#KM HAI 1+2 OS il6
+hai12osil6<-survfit(Surv(deathtime,death)~il6high,data=dhai)
+hai12oskmil6<-ggsurvplot(hai12osil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in HAI 1+2",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+hai12oskmil6
+
+#KM HAI 1+2 OS N elevated
+hai12osneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=dhai)
+hai12oskmneleyi<-ggsurvplot(hai12osneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in HAI 1+2",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+hai12oskmneleyi
+
+#KM Biweekly PFS
+biweeklypfs<-survfit(Surv(progtime,prog)~1,data=subset(dnew,proname=="Biweekly"))
+biweeklypfs
+#KM Biweekly PFS ykl40
+biweeklypfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=subset(dnew,proname=="Biweekly"))
+biweeklypfskmykl40<-ggsurvplot(biweeklypfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Progression-free survival in Biweekly",xlab="Time (years)",
+                         ylab="Progression-free survival probability",
+                         legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+biweeklypfskmykl40
+
+#KM Biweekly PFS il6
+biweeklypfsil6<-survfit(Surv(progtime,prog)~il6high,data=subset(dnew,proname=="Biweekly"))
+biweeklypfskmil6<-ggsurvplot(biweeklypfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Progression-free survival in Biweekly",xlab="Time (months)",
+                           ylab="Progression-free survival probability",
+                           legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+biweeklypfskmil6
+
+#KM Biweekly PFS N elevated
+biweeklypfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=subset(dnew,proname=="Biweekly"))
+biweeklypfskmneleyi<-ggsurvplot(biweeklypfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Progression-free survival in Biweekly",xlab="Time (months)",
+                          ylab="Progression-free survival probability",
+                          legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+biweeklypfskmneleyi
+
+#KM Biweekly OS
+biweeklyos<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="Biweekly"))
+biweeklyos
+#KM Biweekly OS ykl40
+biweeklyosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="Biweekly"))
+biweeklyoskmykl40<-ggsurvplot(biweeklyosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Overall survival in Biweekly",xlab="Time (years)",
+                        ylab="Overall survival probability",
+                        legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+biweeklyoskmykl40
+
+#KM Biweekly OS il6
+biweeklyosil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="Biweekly"))
+biweeklyoskmil6<-ggsurvplot(biweeklyosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in Biweekly",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+biweeklyoskmil6
+
+#KM Biweekly OS N elevated
+biweeklyosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="Biweekly"))
+biweeklyoskmneleyi<-ggsurvplot(biweeklyosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in Biweekly",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+biweeklyoskmneleyi
+
+#KM XELOX PFS
+xeloxpfs<-survfit(Surv(progtime,prog)~1,data=subset(dnew,proname=="XELOX"))
+xeloxpfs
+#KM XELOX PFS ykl40
+xeloxpfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=subset(dnew,proname=="XELOX"))
+xeloxpfskmykl40<-ggsurvplot(xeloxpfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Progression-free survival in XELOX",xlab="Time (years)",
+                             ylab="Progression-free survival probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+xeloxpfskmykl40
+
+#KM XELOX PFS il6
+xeloxpfsil6<-survfit(Surv(progtime,prog)~il6high,data=subset(dnew,proname=="XELOX"))
+xeloxpfskmil6<-ggsurvplot(xeloxpfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                               title="Progression-free survival in XELOX",xlab="Time (months)",
+                               ylab="Progression-free survival probability",
+                               legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+xeloxpfskmil6
+
+#KM XELOX PFS N elevated
+xeloxpfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=subset(dnew,proname=="XELOX"))
+xeloxpfskmneleyi<-ggsurvplot(xeloxpfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in XELOX",xlab="Time (months)",
+                              ylab="Progression-free survival probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+xeloxpfskmneleyi
+
+#KM XELOX OS
+xeloxos<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="XELOX"))
+xeloxos
+#KM XELOX OS ykl40
+xeloxosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="XELOX"))
+xeloxoskmykl40<-ggsurvplot(xeloxosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                            title="Overall survival in XELOX",xlab="Time (years)",
+                            ylab="Overall survival probability",
+                            legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+xeloxoskmykl40
+
+#KM XELOX OS il6
+xeloxosil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="XELOX"))
+xeloxoskmil6<-ggsurvplot(xeloxosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Overall survival in XELOX",xlab="Time (years)",
+                              ylab="Overall survival probability",
+                              legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+xeloxoskmil6
+#KM XELOX OS N elevated
+xeloxosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="XELOX"))
+xeloxoskmneleyi<-ggsurvplot(xeloxosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in XELOX",xlab="Time (years)",
+                             ylab="Overall survival probability",
+                             legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+xeloxoskmneleyi
+
+
+#KM ICE PFS
+icepfs<-survfit(Surv(progtime,prog)~1,data=subset(dnew,proname=="ICE"))
+icepfs
+#KM ICE PFS ykl40
+icepfsykl40<-survfit(Surv(progtime,prog)~ykl40high,data=subset(dnew,proname=="ICE"))
+icepfskmykl40<-ggsurvplot(icepfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Progression-free survival in ICE",xlab="Time (years)",
+                          ylab="Progression-free survival probability",
+                          legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+icepfskmykl40
+
+#KM ICE PFS il6
+icepfsil6<-survfit(Surv(progtime,prog)~il6high,data=subset(dnew,proname=="ICE"))
+icepfskmil6<-ggsurvplot(icepfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                            title="Progression-free survival in ICE",xlab="Time (months)",
+                            ylab="Progression-free survival probability",
+                            legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+icepfskmil6
+
+#KM ICE PFS N elevated
+icepfsneleyi<-survfit(Surv(progtime,prog)~nelevatedyi,data=subset(dnew,proname=="ICE"))
+icepfskmneleyi<-ggsurvplot(icepfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Progression-free survival in ICE",xlab="Time (months)",
+                           ylab="Progression-free survival probability",
+                           legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+icepfskmneleyi
+
+#KM ICE OS
+iceos<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="ICE"))
+iceos
+#KM ICE OS ykl40
+iceosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="ICE"))
+iceoskmykl40<-ggsurvplot(iceosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in ICE",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+iceoskmykl40
+
+#KM ICE OS il6
+iceosil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="ICE"))
+iceoskmil6<-ggsurvplot(iceosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Overall survival in ICE",xlab="Time (years)",
+                           ylab="Overall survival probability",
+                           legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+iceoskmil6
+
+#KM ICE OS N elevated
+iceosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="ICE"))
+iceoskmneleyi<-ggsurvplot(iceosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in ICE",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+iceoskmneleyi
+
+
+#KM BIOREC
+
+#KM BIOREC RFS
+biorecrfs<-survfit(Surv(rectime,rec)~1,data=subset(dnew,proname=="BIOREC"))
+biorecrfs
+#KM BIOREC RFS ykl40
+biorecrfsykl40<-survfit(Surv(rectime,rec)~ykl40high,data=subset(dnew,proname=="BIOREC"))
+biorecrfskmykl40<-ggsurvplot(biorecrfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Recurrence-free survival in BIOREC",xlab="Time (years)",
+                        ylab="Recurrence-free survival probability",
+                        legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+biorecrfskmykl40
+
+#KM BIOREC RFS il6
+biorecrfsil6<-survfit(Surv(rectime,rec)~il6high,data=subset(dnew,proname=="BIOREC"))
+biorecrfskmil6<-ggsurvplot(biorecrfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Recurrence-free survival in BIOREC",xlab="Time (months)",
+                          ylab="Recurrence-free survival probability",
+                          legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+biorecrfskmil6
+
+#KM BIOREC RFS N elevated
+biorecrfsneleyi<-survfit(Surv(rectime,rec)~nelevatedyi,data=subset(dnew,proname=="BIOREC"))
+biorecrfskmneleyi<-ggsurvplot(biorecrfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Recurrence-free survival in BIOREC",xlab="Time (months)",
+                         ylab="Recurrence-free survival probability",
+                         legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+biorecrfskmneleyi
+
+#KM BIOREC OS
+biorecos<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="BIOREC"))
+biorecos
+#KM BIOREC OS ykl40
+biorecosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="BIOREC"))
+biorecoskmykl40<-ggsurvplot(biorecosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                       title="Overall survival in BIOREC",xlab="Time (years)",
+                       ylab="Overall survival probability",
+                       legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+biorecoskmykl40
+
+#KM BIOREC OS il6
+biorecosil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="BIOREC"))
+biorecoskmil6<-ggsurvplot(biorecosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                         title="Overall survival in BIOREC",xlab="Time (years)",
+                         ylab="Overall survival probability",
+                         legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+biorecoskmil6
+
+#KM BIOREC OS N elevated
+biorecosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="BIOREC"))
+biorecoskmneleyi<-ggsurvplot(biorecosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                        title="Overall survival in BIOREC",xlab="Time (years)",
+                        ylab="Overall survival probability",
+                        legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+biorecoskmneleyi
+
+
+#KM RECCET
+
+#KM RECCET RFS ykl40
+reccetrfs<-survfit(Surv(rectime,rec)~1,data=subset(dnew,proname=="RECCET"))
+reccetrfs
+reccetrfsykl40<-survfit(Surv(rectime,rec)~ykl40high,data=subset(dnew,proname=="RECCET"))
+reccetrfskmykl40<-ggsurvplot(reccetrfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Recurrence-free survival in RECCET",xlab="Time (years)",
+                           ylab="Recurrence-free survival probability",
+                           legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+reccetrfskmykl40
+
+#KM RECCET RFS il6
+reccetrfsil6<-survfit(Surv(rectime,rec)~il6high,data=subset(dnew,proname=="RECCET"))
+reccetrfskmil6<-ggsurvplot(reccetrfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in RECCET",xlab="Time (months)",
+                             ylab="Recurrence-free survival probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+reccetrfskmil6
+
+#KM RECCET RFS N elevated
+reccetrfsneleyi<-survfit(Surv(rectime,rec)~nelevatedyi,data=subset(dnew,proname=="RECCET"))
+reccetrfskmneleyi<-ggsurvplot(reccetrfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                            title="Recurrence-free survival in RECCET",xlab="Time (months)",
+                            ylab="Recurrence-free survival probability",
+                            legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+reccetrfskmneleyi
+
+#KM RECCET OS
+reccetos<-survfit(Surv(deathtime,death)~1,data=subset(dnew,proname=="RECCET"))
+reccetos
+#KM RECCET OS ykl40
+reccetosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=subset(dnew,proname=="RECCET"))
+reccetoskmykl40<-ggsurvplot(reccetosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in RECCET",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+reccetoskmykl40
+
+#KM RECCET OS il6
+reccetosil6<-survfit(Surv(deathtime,death)~il6high,data=subset(dnew,proname=="RECCET"))
+reccetoskmil6<-ggsurvplot(reccetosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                            title="Overall survival in RECCET",xlab="Time (years)",
+                            ylab="Overall survival probability",
+                            legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+reccetoskmil6
+
+#KM RECCET OS N elevated
+reccetosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=subset(dnew,proname=="RECCET"))
+reccetoskmneleyi<-ggsurvplot(reccetosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                           title="Overall survival in RECCET",xlab="Time (years)",
+                           ylab="Overall survival probability",
+                           legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+reccetoskmneleyi
+
+
+#KM BIOREC + RECCET
+
+#KM BIOREC + RECCET RFS ykl40
+drectalrfs<-survfit(Surv(rectime,rec)~1,data=drectal)
+drectalrfs
+drectalrfsykl40<-survfit(Surv(rectime,rec)~ykl40high,data=drectal)
+drectalrfskmykl40<-ggsurvplot(drectalrfsykl40, data=drectal,risk.table = T,risk.table.title="Strata",
+                           title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (years)",
+                           ylab="Recurrence-free survival probability",
+                           legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+drectalrfskmykl40
+
+#KM BIOREC + RECCET RFS il6
+drectalrfsil6<-survfit(Surv(rectime,rec)~il6high,data=drectal)
+drectalrfskmil6<-ggsurvplot(drectalrfsil6, data=drectal,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (months)",
+                             ylab="Recurrence-free survival probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+drectalrfskmil6
+
+#KM BIOREC + RECCET RFS N elevated
+drectalrfsneleyi<-survfit(Surv(rectime,rec)~nelevatedyi,data=drectal)
+drectalrfskmneleyi<-ggsurvplot(drectalrfsneleyi, data=drectal,risk.table = T,risk.table.title="Strata",
+                            title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (months)",
+                            ylab="Recurrence-free survival probability",
+                            legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+drectalrfskmneleyi
+
+#KM BIOREC + RECCET OS
+
+#KM BIOREC + RECCET OS ykl40
+drectalos<-survfit(Surv(deathtime,death)~1,data=drectal)
+drectalos
+drectalosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=drectal)
+drectaloskmykl40<-ggsurvplot(drectalosykl40, data=drectal,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+drectaloskmykl40
+
+#KM BIOREC + RECCET OS il6
+drectalosil6<-survfit(Surv(deathtime,death)~il6high,data=drectal)
+drectaloskmil6<-ggsurvplot(drectalosil6, data=drectal,risk.table = T,risk.table.title="Strata",
+                            title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                            ylab="Overall survival probability",
+                            legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+drectaloskmil6
+
+#KM BIOREC + RECCET OS N elevated
+drectalosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=drectal)
+drectaloskmneleyi<-ggsurvplot(drectalosneleyi, data=drectal,risk.table = T,risk.table.title="Strata",
+                           title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                           ylab="Overall survival probability",
+                           legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+drectaloskmneleyi
+
+#KM REBECCA
+
+#KM REBECCA RFS ykl40
+rebeccarfs<-survfit(Surv(rectimenew,rec)~1,data=rebdnew)
+rebeccarfs
+rebeccarfsykl40<-survfit(Surv(rectimenew,rec)~ykl40high,data=rebdnew)
+rebeccarfskmykl40<-ggsurvplot(rebeccarfsykl40, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                           title="Recurrence-free survival in REBECCA",xlab="Time (years)",
+                           ylab="Recurrence-free survival probability",
+                           legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+rebeccarfskmykl40
+
+#KM REBECCA RFS il6
+rebeccarfsil6<-survfit(Surv(rectimenew,rec)~il6high,data=rebdnew)
+rebeccarfskmil6<-ggsurvplot(rebeccarfsil6, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in REBECCA",xlab="Time (months)",
+                             ylab="Recurrence-free survival probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+rebeccarfskmil6
+
+#KM REBECCA RFS N elevated
+rebeccarfsneleyi<-survfit(Surv(rectimenew,rec)~nelevatedyi,data=rebdnew)
+rebeccarfskmneleyi<-ggsurvplot(rebeccarfsneleyi, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                            title="Recurrence-free survival in REBECCA",xlab="Time (months)",
+                            ylab="Recurrence-free survival probability",
+                            legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+rebeccarfskmneleyi
+
+#KM REBECCA OS
+
+#Overall survival REBECCA OS
+rebeccaos<-survfit(Surv(deathtime,death)~1,data=rebdnew)
+rebeccaos
+#KM REBECCA OS ykl40
+rebeccaosykl40<-survfit(Surv(deathtime,death)~ykl40high,data=rebdnew)
+rebeccaoskmykl40<-ggsurvplot(rebeccaosykl40, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                          title="Overall survival in REBECCA",xlab="Time (years)",
+                          ylab="Overall survival probability",
+                          legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"))
+rebeccaoskmykl40
+
+#KM REBECCA OS il6
+rebeccaosil6<-survfit(Surv(deathtime,death)~il6high,data=rebdnew)
+rebeccaoskmil6<-ggsurvplot(rebeccaosil6, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                            title="Overall survival in REBECCA",xlab="Time (years)",
+                            ylab="Overall survival probability",
+                            legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "))
+rebeccaoskmil6
+
+#KM REBECCA OS N elevated
+rebeccaosneleyi<-survfit(Surv(deathtime,death)~nelevatedyi,data=rebdnew)
+rebeccaoskmneleyi<-ggsurvplot(rebeccaosneleyi, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                           title="Overall survival in REBECCA",xlab="Time (years)",
+                           ylab="Overall survival probability",
+                           legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"))
+rebeccaoskmneleyi
+
+
+
+
+
+
+#Arrange plots for figures
+
+
+#Figure 1 Stage III ykl40 il6 OS
+figure1km <- list()
+
+figure1km[[1]] <- ggsurvplot(drectalosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,10),break.x.by=2)
+figure1km[[3]] <- ggsurvplot(drectalosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,10),break.x.by=2)
+figure1km[[2]] <- ggsurvplot(rebeccaosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in REBECCA",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),break.x.by=2)
+figure1km[[4]] <- ggsurvplot(rebeccaosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in REBECCA",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),break.x.by=2)
+
+
+fig1kmplot<-arrange_ggsurvplots(figure1km, surv.plot.height =0.75,print = TRUE,
+                                ncol = 2, nrow = 2, risk.table.height = 0.2)
+
+ggsave("plots/Figure 1.tiff", fig1kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/Figure 1.pdf", fig1kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/Figure 1.eps", fig1kmplot,width = 40, height = 40, units = "cm")
+
+#Figure 2 Metastatic ykl40 il6 OS
+figure2km <- list()
+
+
+figure2km[[2]] <- ggsurvplot(hai12osil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in HAI 1+HAI 2",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,5),break.x.by=1)
+figure2km[[6]] <- ggsurvplot(hai12osykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in HAI 1+HAI 2",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,5),break.x.by=1)
+
+figure2km[[3]] <- ggsurvplot(biweeklyosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in Biweekly",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,3),break.x.by=1)
+figure2km[[7]] <- ggsurvplot(biweeklyosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in Biweekly",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,3),break.x.by=1)
+figure2km[[1]] <- ggsurvplot(xeloxosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in XELOX",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,5),break.x.by=1)
+figure2km[[5]] <- ggsurvplot(xeloxosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in XELOX",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,5),break.x.by=1)
+figure2km[[4]] <- ggsurvplot(iceosil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in ICE",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,3),break.x.by=1)
+figure2km[[8]] <- ggsurvplot(iceosykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in ICE",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,3),break.x.by=1)
+
+fig2kmplot<-arrange_ggsurvplots(figure2km, surv.plot.height =0.9,print = TRUE,
+                                ncol = 2, nrow = 4, risk.table.height = 0.4)
+
+ggsave("plots/Figure 2.tiff", fig2kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/Figure 2.pdf", fig2kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/Figure 2.eps", fig2kmplot,width = 40, height = 40, units = "cm")
+
+
+
+#Supplementary figure 1 Stage I-III ykl40 il6 RFS
+sfigure1km <- list()
+
+sfigure1km[[1]] <- ggsurvplot(drectalrfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,5),break.x.by=1)
+sfigure1km[[3]] <- ggsurvplot(drectalrfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,5),break.x.by=1)
+sfigure1km[[2]] <- ggsurvplot(rebeccarfsil6, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in REBECCA",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),break.x.by=1)
+sfigure1km[[4]] <- ggsurvplot(rebeccarfsykl40, data=rebdnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in REBECCA",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),break.x.by=1)
+
+
+sfig1kmplot<-arrange_ggsurvplots(sfigure1km, surv.plot.height =0.75,print = TRUE,
+                                ncol = 2, nrow = 2, risk.table.height = 0.2)
+
+ggsave("plots/SFigure 1.tiff", sfig1kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 1.pdf", sfig1kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 1.eps", sfig1kmplot,width = 40, height = 40, units = "cm")
+
+
+#Supplementary figure 2 Metastatic ykl40 il6 PFS
+sfigure2km <- list()
+
+
+sfigure2km[[2]] <- ggsurvplot(hai12pfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in HAI 1+HAI 2",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,3),break.x.by=1)
+sfigure2km[[6]] <- ggsurvplot(hai12pfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in HAI 1+HAI 2",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,3),break.x.by=1)
+
+sfigure2km[[3]] <- ggsurvplot(biweeklypfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in Biweekly",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,2),break.x.by=1)
+sfigure2km[[7]] <- ggsurvplot(biweeklypfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in Biweekly",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,2),break.x.by=1)
+sfigure2km[[1]] <- ggsurvplot(xeloxpfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in XELOX",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),xlim=c(0,2),break.x.by=1)
+sfigure2km[[5]] <- ggsurvplot(xeloxpfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in XELOX",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),xlim=c(0,2),break.x.by=1)
+sfigure2km[[4]] <- ggsurvplot(icepfsil6, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in ICE",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("IL-6 < 4.92 pg/mL ","IL-6 > 4.92 pg/mL "),break.x.by=1)
+sfigure2km[[8]] <- ggsurvplot(icepfsykl40, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in ICE",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("YKL-40 < 95 % percentile","YKL-40 > 95 % percentile"),break.x.by=1)
+
+sfig2kmplot<-arrange_ggsurvplots(sfigure2km, surv.plot.height =0.9,print = TRUE,
+                                 ncol = 2, nrow = 4, risk.table.height = 0.4)
+
+ggsave("plots/SFigure 2.tiff", sfig2kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 2.pdf", sfig2kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 2.eps", sfig2kmplot,width = 40, height = 40, units = "cm")
+
+
+
+
+#Supplementary figure 3 Stage III ykl40 il6 N elevated RFS
+sfigure3km <- list()
+
+sfigure3km[[1]] <- ggsurvplot(drectalrfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,5),break.x.by=2)
+sfigure3km[[2]] <-  ggsurvplot(rebeccaosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Recurrence-free survival in REBECCA",xlab="Time (years)",
+                             ylab="RFS probability",
+                             legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),break.x.by=2)
+
+
+sfig3kmplot<-arrange_ggsurvplots(sfigure3km, surv.plot.height =0.75,print = TRUE, risk.table.height = 0.2)
+
+ggsave("plots/SFigure 3.tiff", sfig3kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 3.pdf", sfig3kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 3.eps", sfig3kmplot,width = 40, height = 40, units = "cm")
+
+#Supplementary figure 4 Stage III ykl40 il6 N elevated OS
+sfigure4km <- list()
+
+sfigure4km[[1]] <- ggsurvplot(drectalosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in BIOREC + RECCET",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,10),break.x.by=2)
+sfigure4km[[2]] <- ggsurvplot(rebeccaosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                             title="Overall survival in REBECCA",xlab="Time (years)",
+                             ylab="OS probability",
+                             legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),break.x.by=2)
+
+
+
+sfig4kmplot<-arrange_ggsurvplots(sfigure4km, surv.plot.height =0.75,print = TRUE,risk.table.height = 0.2)
+
+ggsave("plots/SFigure 4.tiff", sfig4kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 4.pdf", sfig4kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 4.eps", sfig4kmplot,width = 40, height = 40, units = "cm")
+
+
+#Supplementary figure 5 Metastatic ykl40 il6 N elevated PFS
+sfigure5km <- list()
+
+
+sfigure5km[[1]] <- ggsurvplot(hai12pfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in HAI 1+HAI 2",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,3),break.x.by=1)
+
+sfigure5km[[2]] <- ggsurvplot(biweeklypfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in Biweekly",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,2),break.x.by=1)
+
+sfigure5km[[3]] <- ggsurvplot(xeloxpfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in XELOX",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,2),break.x.by=1)
+
+sfigure5km[[4]] <- ggsurvplot(icepfsneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Progression-free survival in ICE",xlab="Time (years)",
+                              ylab="PFS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),break.x.by=1)
+
+sfig5kmplot<-arrange_ggsurvplots(sfigure5km, surv.plot.height =0.9,print = TRUE,
+                                 ncol = 2, nrow = 2, risk.table.height = 0.4)
+
+ggsave("plots/SFigure 5.tiff", sfig5kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 5.pdf", sfig5kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 5.eps", sfig5kmplot,width = 40, height = 40, units = "cm")
+
+
+#Supplementary figure 6 Metastatic ykl40 il6 N elevated OS
+sfigure6km <- list()
+
+
+sfigure6km[[1]] <- ggsurvplot(hai12osneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Overall survival in HAI 1+HAI 2",xlab="Time (years)",
+                              ylab="OS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,5),break.x.by=1)
+
+sfigure6km[[2]] <- ggsurvplot(biweeklyosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Overall survival in Biweekly",xlab="Time (years)",
+                              ylab="OS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,5),break.x.by=1)
+
+sfigure6km[[3]] <- ggsurvplot(xeloxosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Overall survival in XELOX",xlab="Time (years)",
+                              ylab="OS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),xlim=c(0,5),break.x.by=1)
+
+sfigure6km[[4]] <- ggsurvplot(iceosneleyi, data=dnew,risk.table = T,risk.table.title="Strata",
+                              title="Overall survival in ICE",xlab="Time (years)",
+                              ylab="OS probability",
+                              legend.labs=c("0 elevated markers","1 elevated marker","2 elevated markers","3 elevated markers"),break.x.by=1)
+
+sfig6kmplot<-arrange_ggsurvplots(sfigure6km, surv.plot.height =0.9,print = TRUE,
+                                 ncol = 2, nrow = 2, risk.table.height = 0.4)
+
+ggsave("plots/SFigure 6.tiff", sfig6kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 6.pdf", sfig6kmplot,width = 40, height = 40, units = "cm")
+ggsave("plots/SFigure 6.eps", sfig6kmplot,width = 40, height = 40, units = "cm")
+
+
+
+
+#Controls for arsenal tableby function
+
+my_controls<-tableby.control(digits=2)
+
+#Labels for descriptives tables
+
+labels(dnew) <- c(age="Age (years)", 
+                          sex="Sex", 
+                          locprim="Location of primary tumor",
+                          side="Side",
+                          ps="Performance status",
+                          locmet="Location of metastases",
+                          primres="Primary tumor resected",
+                          t="T-stage",
+                          n="N-stage",
+                          m="M-stage",
+                          cea="CEA (ng/mL)",
+                          ykl40="YKL-40 (ng/mL)",
+                          ceahigh="CEA > 5 ng/mL",
+                          ykl40high="YKL-40 > 95 % age-corrected percentile",
+                          il6="IL-6 pg/mL",
+                          il6high="IL-6 > 4.92 pg/mL",
+                          death = "Died",
+                          futimed= "Follow-up time (days)",
+                          futimey= "Follow-up time (years)",
+                  rec="Recurrence",
+                  rectime="Recurrence follow-up time",
+                  death="Dead",
+                  deathtime="Follow-up time (event=OS)")
+labels(dhai) <- c(age="Age (years)", 
+                  sex="Sex", 
+                  locprim="Location of primary tumor",
+                  side="Side",
+                  ps="Performance status",
+                  locmet="Location of metastases",
+                  primres="Primary tumor resected",
+                  t="T-stage",
+                  n="N-stage",
+                  m="M-stage",
+                  cea="CEA (ng/mL)",
+                  ykl40="YKL-40 (ng/mL)",
+                  ykl40high="YKL-40 > 95 % age-corrected percentile",
+                  il6="IL-6 pg/mL",
+                  il6high="IL-6 > 4.92 pg/mL",
+                  ceahigh="CEA > 5 ng/mL",
+                  death = "Died",
+                  futimed= "Follow-up time (days)",
+                  futimey= "Follow-up time (years)",
+                  rec="Recurrence",
+                  rectime="Recurrence follow-up time",
+                  death="Dead",
+                  deathtime="Follow-up time (event=OS)")
+labels(drectal) <- c(age="Age (years)", 
+                     sex="Sex", 
+                     locprim="Location of primary tumor",
+                     side="Side",
+                     ps="Performance status",
+                     locmet="Location of metastases",
+                     primres="Primary tumor resected",
+                     t="T-stage",
+                     n="N-stage",
+                     m="M-stage",
+                     cea="CEA (ng/mL)",
+                     ceahigh="CEA > 5 ng/mL",
+                     ykl40="YKL-40 (ng/mL)",
+                     ykl40high="YKL-40 > 95 % age-corrected percentile",
+                     il6="IL-6 pg/mL",
+                     il6high="IL-6 > 4.92 pg/mL",
+                     death = "Died",
+                     futimed= "Follow-up time (days)",
+                     futimey= "Follow-up time (years)",
+                     rec="Recurrence",
+                     rectime="Recurrence follow-up time",
+                     death="Dead",
+                     deathtime="Follow-up time (event=OS)")
+
+
+
+#Lav table 1 for hele kohorten
+table1<-tableby(proname~age+sex+locprim+side+ps+locmet+primres+
+                  t+n+m+cea+ceahigh+ykl40+ykl40high+il6+il6high+deathtime+rectime,data=dnew,control=my_controls)
+#Table for HAI studies
+table2<-tableby(~age+sex+locprim+side+ps+locmet+primres+
+                  t+n+m+cea+ceahigh+ykl40+ykl40high+il6+il6high+deathtime+rectime,data=dhai,control=my_controls)
+#Table for rectal studies
+table3<-tableby(~age+sex+locprim+side+ps+locmet+primres+
+                  t+n+m+cea+ceahigh+ykl40+il6+ykl40high+il6high+deathtime+rectime,data=drectal,control=my_controls)
+
+
+#Hypothesis tests for baseline characteristics
+dnewtest=dnew %>% 
+  mutate(met=as.factor(if_else(proname=="HAI1"|proname=="HAI2"|proname=="Biweekly"|proname=="XELOX"|proname=="ICE","Metastatic","Stage III")))
+table(dnewtest$met)
+
+t.test(dnewtest$log2ykl40~dnewtest$met)
+t.test(dnewtest$log2il6~dnewtest$met)
+
+
+#Cox regression models for univariate and multivariate PFS HAI 1
+pfshai1<-survfit(Surv(progtime,prog)~1,data=subset(dnew, proname=="HAI1"))
+pfshai1
+
+pfshai1coxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=subset(dnew, proname=="HAI1"),id=bigiid)
+pfshai1coxcrudeykl40
+pfshai1coxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=subset(dnew, proname=="HAI1"))
+
+pfshai1coxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="HAI1"))
+
+pfshai1coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in HAI 1")
+pfshai1coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in HAI 1")
+pfshai1coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2il6~"IL-6 (log2-transformed)",
+                                          log2ykl40~"YKL-40 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in HAI 1")
+
+
+#Cox regression models for univariate and multivariate PFS HAI 2
+pfshai2<-survfit(Surv(progtime,prog)~1,data=subset(dnew, proname=="HAI2"))
+pfshai2
+
+pfshai2coxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=subset(dnew, proname=="HAI2"))
+pfshai2coxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=subset(dnew, proname=="HAI2"))
+
+pfshai2coxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="HAI2"))
+
+pfshai2coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in HAI 2")
+pfshai2coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in HAI 2")
+pfshai2coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in HAI 2")
+
+
+#Cox regression models for univariate and multivariate PFS HAI 1+2
+pfshai12<-survfit(Surv(progtime,prog)~1,data=dhai)
+pfshai12
+
+pfshai12coxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=dhai)
+pfshai12coxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=dhai)
+
+pfshai12coxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=dhai)
+
+pfshai12coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in HAI 1+2")
+pfshai12coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in HAI 1+2")
+pfshai12coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in HAI 1+2")
+
+
+#Cox regression models for univariate and multivariate PFS Biweekly
+pfsbiweekly<-survfit(Surv(progtime,prog)~1,data=subset(dnew, proname=="Biweekly"))
+pfsbiweekly
+
+pfsbiweeklycoxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=subset(dnew, proname=="Biweekly"))
+pfsbiweeklycoxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=subset(dnew, proname=="Biweekly"))
+
+pfsbiweeklycoxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="Biweekly"))
+
+pfsbiweeklycoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in Biweekly")
+pfsbiweeklycoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in Biweekly")
+pfsbiweeklycoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in Biweekly")
+
+#Cox regression models for univariate and multivariate PFS XELOX
+pfsxelox<-survfit(Surv(progtime,prog)~1,data=subset(dnew, proname=="XELOX"))
+pfsxelox
+
+pfsxeloxcoxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=subset(dnew, proname=="XELOX"))
+pfsxeloxcoxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=subset(dnew, proname=="XELOX"))
+
+pfsxeloxcoxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="XELOX"))
+
+pfsxeloxcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in XELOX")
+pfsxeloxcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in XELOX")
+pfsxeloxcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in XELOX")
+
+#Cox regression models for univariate and multivariate PFS ICE
+pfsice<-survfit(Surv(progtime,prog)~1,data=subset(dnew, proname=="ICE"))
+pfsice
+
+pfsicecoxcrudeykl40<-coxph(Surv(progtime,prog)~log2ykl40,data=subset(dnew, proname=="ICE"))
+pfsicecoxcrudeil6<-coxph(Surv(progtime,prog)~log2il6,data=subset(dnew, proname=="ICE"))
+
+pfsicecoxadj<-coxph(Surv(progtime,prog)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="ICE"))
+
+pfsicecoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate YKL-40 in ICE")
+pfsicecoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression univariate IL-6 in ICE")
+pfsicecoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model in ICE")
+
+
+#Cox regression models for univariate and multivariate RFS BIOREC
+rfsbiorec<-survfit(Surv(rectime,rec)~1,data=subset(dnew, proname=="BIOREC"))
+rfsbiorec
+
+rfsbioreccoxcrudeykl40<-coxph(Surv(rectime,rec)~log2ykl40,data=subset(dnew, proname=="BIOREC"))
+rfsbioreccoxcrudeil6<-coxph(Surv(rectime,rec)~log2il6,data=subset(dnew, proname=="BIOREC"))
+
+rfsbioreccoxadj<-coxph(Surv(rectime,rec)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="BIOREC"))
+
+rfsbioreccoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate YKL-40 in BIOREC")
+rfsbioreccoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate IL-6 in BIOREC")
+rfsbioreccoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2ykl40~"YKL-40 (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2cea~"CEA (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model in BIOREC")
+
+#Cox regression models for univariate and multivariate RFS RECCET
+rfsreccet<-survfit(Surv(rectime,rec)~1,data=subset(dnew, proname=="RECCET"))
+rfsreccet
+
+rfsreccetcoxcrudeykl40<-coxph(Surv(rectime,rec)~log2ykl40,data=subset(dnew, proname=="RECCET"))
+rfsreccetcoxcrudeil6<-coxph(Surv(rectime,rec)~log2il6,data=subset(dnew, proname=="RECCET"))
+
+rfsreccetcoxadj<-coxph(Surv(rectime,rec)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="RECCET"))
+
+rfsreccetcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate YKL-40 in RECCET")
+rfsreccetcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate IL-6 in RECCET")
+rfsreccetcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model in RECCET")
+
+
+#Cox regression models for univariate and multivariate RFS BIOREC+RECCET
+rfsbiorecreccet<-survfit(Surv(rectime,rec)~1,data=drectal)
+rfsbiorecreccet
+
+rfsbiorecreccetcoxcrudeykl40<-coxph(Surv(rectime,rec)~log2ykl40,data=drectal)
+rfsbiorecreccetcoxcrudeil6<-coxph(Surv(rectime,rec)~log2il6,data=drectal)
+
+rfsbiorecreccetcoxadj<-coxph(Surv(rectime,rec)~log2ykl40+log2il6+age+sex+side+log2cea,data=drectal)
+
+rfsbiorecreccetcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate YKL-40 in BIOREC+RECCET")
+rfsbiorecreccetcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate IL-6 in BIOREC+RECCET")
+rfsbiorecreccetcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model in BIOREC+RECCET")
+
+
+#Cox regression models for univariate and multivariate RFS REBECCA
+rfsrebecca<-survfit(Surv(rectime,rec)~1,data=subset(rebdnew, proname=="REBECCA"))
+rfsrebecca
+
+rfsrebeccacoxcrudeykl40<-coxph(Surv(rectime,rec)~log2ykl40,data=subset(rebdnew, proname=="REBECCA"))
+rfsrebeccacoxcrudeil6<-coxph(Surv(rectime,rec)~log2il6,data=subset(rebdnew, proname=="REBECCA"))
+
+rfsrebeccacoxadj<-coxph(Surv(rectime,rec)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(rebdnew, proname=="REBECCA"))
+
+rfsrebeccacoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate YKL-40 in REBECCA")
+rfsrebeccacoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate IL-6 in REBECCA")
+rfsrebeccacoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model in REBECCA")
+
+
+#Cox regression models for univariate and multivariate OS
+
+#Cox regression models for univariate and multivariate OS HAI 1
+oshai1<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="HAI1"))
+oshai1
+
+oshai1coxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="HAI1"))
+oshai1coxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="HAI1"))
+
+oshai1coxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="HAI1"))
+
+oshai1coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in HAI 1")
+oshai1coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in HAI 1")
+oshai1coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2il6~"IL-6 (log2-transformed)",
+                                          log2cea~"CEA (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in HAI 1")
+
+
+#Cox regression models for univariate and multivariate OS HAI 2
+oshai2<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="HAI2"))
+oshai2
+
+oshai2coxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="HAI2"))
+oshai2coxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="HAI2"))
+
+oshai2coxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="HAI2"))
+
+oshai2coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in HAI 2")
+oshai2coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in HAI 2")
+oshai2coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in HAI 2")
+
+
+#Cox regression models for univariate and multivariate OS HAI 1+2
+oshai12<-survfit(Surv(deathtime,death)~1,data=dhai)
+oshai12
+
+oshai12coxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=dhai)
+oshai12coxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=dhai)
+
+oshai12coxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=dhai)
+
+oshai12coxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in HAI 1+2")
+oshai12coxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in HAI 1+2")
+oshai12coxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in HAI 1+2")
+
+
+#Cox regression models for univariate and multivariate OS Biweekly
+osbiweekly<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="Biweekly"))
+osbiweekly
+
+osbiweeklycoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="Biweekly"))
+osbiweeklycoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="Biweekly"))
+
+osbiweeklycoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="Biweekly"))
+
+osbiweeklycoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in Biweekly")
+osbiweeklycoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in Biweekly")
+osbiweeklycoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in Biweekly")
+
+#Cox regression models for univariate and multivariate OS XELOX
+osxelox<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="XELOX"))
+osxelox
+
+osxeloxcoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="XELOX"))
+osxeloxcoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="XELOX"))
+
+osxeloxcoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="XELOX"))
+
+osxeloxcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in XELOX")
+osxeloxcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in XELOX")
+osxeloxcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in XELOX")
+
+#Cox regression models for univariate and multivariate OS ICE
+osice<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="ICE"))
+osice
+
+osicecoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="ICE"))
+osicecoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="ICE"))
+
+osicecoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="ICE"))
+
+osicecoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in ICE")
+osicecoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in ICE")
+osicecoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in ICE")
+
+
+#Cox regression models for univariate and multivariate OS BIOREC
+osbiorec<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="BIOREC"))
+osbiorec
+
+osbioreccoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="BIOREC"))
+osbioreccoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="BIOREC"))
+
+osbioreccoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="BIOREC"))
+
+osbioreccoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in BIOREC")
+osbioreccoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in BIOREC")
+osbioreccoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in BIOREC")
+
+#Cox regression models for univariate and multivariate OS RECCET
+osreccet<-survfit(Surv(deathtime,death)~1,data=subset(dnew, proname=="RECCET"))
+osreccet
+
+osreccetcoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(dnew, proname=="RECCET"))
+osreccetcoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(dnew, proname=="RECCET"))
+
+osreccetcoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(dnew, proname=="RECCET"))
+
+osreccetcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in RECCET")
+osreccetcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in RECCET")
+osreccetcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in RECCET")
+
+
+#Cox regression models for univariate and multivariate OS BIOREC+RECCET
+osbiorecreccet<-survfit(Surv(deathtime,death)~1,data=drectal)
+osbiorecreccet
+
+osbiorecreccetcoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=drectal)
+osbiorecreccetcoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=drectal)
+
+osbiorecreccetcoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=drectal)
+
+osbiorecreccetcoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in BIOREC+RECCET")
+osbiorecreccetcoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in BIOREC+RECCET")
+osbiorecreccetcoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in BIOREC+RECCET")
+
+
+
+#Cox regression models for univariate and multivariate OS REBECCA
+osrebecca<-survfit(Surv(deathtime,death)~1,data=subset(rebdnew, proname=="REBECCA"))
+osrebecca
+
+osrebeccacoxcrudeykl40<-coxph(Surv(deathtime,death)~log2ykl40,data=subset(rebdnew, proname=="REBECCA"))
+osrebeccacoxcrudeil6<-coxph(Surv(deathtime,death)~log2il6,data=subset(rebdnew, proname=="REBECCA"))
+
+osrebeccacoxadj<-coxph(Surv(deathtime,death)~log2ykl40+log2il6+age+sex+side+log2cea,data=subset(rebdnew, proname=="REBECCA"))
+
+osrebeccacoxcrudeykl40%>%
+  tbl_regression(exponentiate = T,label=log2ykl40~"YKL-40 (log2-transformed)")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate YKL-40 in REBECCA")
+osrebeccacoxcrudeil6%>%
+  tbl_regression(exponentiate = T,label=log2il6~"IL-6 (log2-transformed)")%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression univariate IL-6 in REBECCA")
+osrebeccacoxadj%>%
+  tbl_regression(exponentiate = T,label=c(log2cea~"CEA (log2-transformed)",
+                                          log2il6~"IL-6 (log2-transformed)",log2ykl40~"YKL-40 (log2-transformed)",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model in REBECCA")
+
+
+##################################################################################
+#
+#
+#
+#
+##################################################################################
+##N elevated (biomarker panel) Cox regressions
+
+
+#Cox regression models for univariate and multivariate PFS n elevated HAI 1
+pfshai1coxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=subset(dnew, proname=="HAI1"),id=bigiid)
+
+pfshai1coxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="HAI1"))
+
+pfshai1coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in HAI 1")
+
+pfshai1coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                                sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression N elevated multivariate model in HAI 1")
+
+
+#Cox regression models for univariate and multivariate PFS n elevated HAI 2
+pfshai2coxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=subset(dnew, proname=="HAI2"))
+
+pfshai2coxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="HAI2"))
+
+pfshai2coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in HAI 2")
+
+pfshai2coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model N elevated in HAI 2")
+
+
+#Cox regression models for univariate and multivariate PFS n elevated HAI 1+2
+pfshai12coxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=dhai)
+
+pfshai12coxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=dhai)
+
+pfshai12coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in HAI 1+2")
+
+pfshai12coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model N elevated in HAI 1+2")
+
+
+#Cox regression models for univariate and multivariate PFS n elevated Biweekly
+
+pfsbiweeklycoxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=subset(dnew, proname=="Biweekly"))
+
+pfsbiweeklycoxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="Biweekly"))
+
+pfsbiweeklycoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in Biweekly")
+
+pfsbiweeklycoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model N elevated in Biweekly")
+
+#Cox regression models for univariate and multivariate PFS n elevated XELOX
+
+pfsxeloxcoxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=subset(dnew, proname=="XELOX"))
+
+pfsxeloxcoxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="XELOX"))
+
+pfsxeloxcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in XELOX")
+
+pfsxeloxcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model N elevated in XELOX")
+
+#Cox regression models for univariate and multivariate PFS n elevated ICE
+
+
+pfsicecoxcrudenele<-coxph(Surv(progtime,prog)~nelevatedyi,data=subset(dnew, proname=="ICE"))
+
+pfsicecoxneleadj<-coxph(Surv(progtime,prog)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="ICE"))
+
+pfsicecoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Progression-free survival Cox regression univariate N elevated in ICE")
+
+pfsicecoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Progression-free survival Cox regression multivariate model N elevated in ICE")
+
+
+#Cox regression models for univariate and multivariate RFS n elevated BIOREC
+
+rfsbioreccoxcrudenele<-coxph(Surv(rectime,rec)~nelevatedyi,data=subset(dnew, proname=="BIOREC"))
+
+
+rfsbioreccoxneleadj<-coxph(Surv(rectime,rec)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="BIOREC"))
+
+rfsbioreccoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate N elevated in BIOREC")
+
+rfsbioreccoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model N elevated in BIOREC")
+
+#Cox regression models for univariate and multivariate RFS n elevated RECCET
+
+
+rfsreccetcoxcrudenele<-coxph(Surv(rectime,rec)~nelevatedyi,data=subset(dnew, proname=="RECCET"))
+
+
+rfsreccetcoxneleadj<-coxph(Surv(rectime,rec)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="RECCET"))
+
+rfsreccetcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate N elevated in RECCET")
+
+rfsreccetcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model N elevated in RECCET")
+
+
+#Cox regression models for univariate and multivariate RFS n elevated BIOREC+RECCET
+
+
+rfsbiorecreccetcoxcrudenele<-coxph(Surv(rectime,rec)~nelevatedyi,data=drectal)
+
+
+rfsbiorecreccetcoxneleadj<-coxph(Surv(rectime,rec)~nelevatedyi+age+sex+side,data=drectal)
+
+rfsbiorecreccetcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate N elevated in BIOREC+RECCET")
+
+rfsbiorecreccetcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model N elevated in BIOREC+RECCET")
+
+
+#Cox regression models for univariate and multivariate RFS n elevated REBECCA
+
+
+rfsrebeccacoxcrudenele<-coxph(Surv(rectime,rec)~nelevatedyi,data=subset(rebdnew, proname=="REBECCA"))
+
+rfsrebeccacoxneleadj<-coxph(Surv(rectime,rec)~nelevatedyi+age+sex+side,data=subset(rebdnew, proname=="REBECCA"))
+
+rfsrebeccacoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Recurrence-free survival Cox regression univariate N elevated in REBECCA")
+
+rfsrebeccacoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Recurrence-free survival Cox regression multivariate model N elevated in REBECCA")
+
+
+#Cox regression models for univariate and multivariate n elevated OS
+
+#Cox regression models for univariate and multivariate OS n elevated HAI 1
+
+
+oshai1coxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="HAI1"))
+
+oshai1coxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="HAI1"))
+
+oshai1coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in HAI 1")
+
+oshai1coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in HAI 1")
+
+
+#Cox regression models for univariate and multivariate OS n elevated HAI 2
+
+
+oshai2coxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="HAI2"))
+
+oshai2coxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="HAI2"))
+
+oshai2coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in HAI 2")
+
+oshai2coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in HAI 2")
+
+
+#Cox regression models for univariate and multivariate OS n elevated HAI 1+2
+
+oshai12coxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=dhai)
+
+oshai12coxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=dhai)
+
+oshai12coxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in HAI 1+2")
+
+oshai12coxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in HAI 1+2")
+
+
+#Cox regression models for univariate and multivariate OS n elevated Biweekly
+
+osbiweeklycoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="Biweekly"))
+
+
+osbiweeklycoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="Biweekly"))
+
+osbiweeklycoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in Biweekly")
+
+osbiweeklycoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in Biweekly")
+
+#Cox regression models for univariate and multivariate OS n elevated XELOX
+
+osxeloxcoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="XELOX"))
+
+
+osxeloxcoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="XELOX"))
+
+osxeloxcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in XELOX")
+
+osxeloxcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in XELOX")
+
+#Cox regression models for univariate and multivariate OS n elevated ICE
+
+
+osicecoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="ICE"))
+
+
+osicecoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="ICE"))
+
+osicecoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in ICE")
+
+osicecoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in ICE")
+
+
+#Cox regression models for univariate and multivariate OS n elevated BIOREC
+
+
+osbioreccoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="BIOREC"))
+
+osbioreccoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="BIOREC"))
+
+osbioreccoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in BIOREC")
+
+osbioreccoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in BIOREC")
+
+#Cox regression models for univariate and multivariate OS n elevated RECCET
+
+osreccetcoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(dnew, proname=="RECCET"))
+
+
+osreccetcoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(dnew, proname=="RECCET"))
+
+osreccetcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in RECCET")
+
+osreccetcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in RECCET")
+
+
+#Cox regression models for univariate and multivariate OS n elevated BIOREC+RECCET
+
+
+osbiorecreccetcoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=drectal)
+
+
+osbiorecreccetcoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=drectal)
+
+osbiorecreccetcoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in BIOREC+RECCET")
+
+osbiorecreccetcoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in BIOREC+RECCET")
+
+
+
+#Cox regression models for univariate and multivariate OS n elevated REBECCA
+
+osrebeccacoxcrudenele<-coxph(Surv(deathtime,death)~nelevatedyi,data=subset(rebdnew, proname=="REBECCA"))
+
+
+osrebeccacoxneleadj<-coxph(Surv(deathtime,death)~nelevatedyi+age+sex+side,data=subset(rebdnew, proname=="REBECCA"))
+
+osrebeccacoxcrudenele%>%
+  tbl_regression(exponentiate = T,label=nelevatedyi~"Number of elevated markers")%>%
+  as_gt() %>% 
+  tab_header(title = "Overall survival Cox regression univariate N elevated in REBECCA")
+
+osrebeccacoxneleadj%>%
+  tbl_regression(exponentiate = T,label=c(nelevatedyi~"Number of elevated markers",age~"Age",
+                                          sex~"Sex",side~"Side"))%>%
+  as_gt()%>% 
+  tab_header(title = "Overall survival Cox regression multivariate model N elevated in REBECCA")
+
+#Assumptions proportional hazards
+#Proportional hazards PFS HAI 1
+
+test.phpfshai1 <- cox.zph(pfshai1coxadj)
+test.phpfshai1
+ggcoxzph(test.phpfshai1)
+
+#Proportional hazards PFS HAI 2
+
+test.phpfshai2 <- cox.zph(pfshai2coxadj)
+test.phpfshai2
+ggcoxzph(test.phpfshai2)
+#Proportional hazards PFS Biweekly
+
+test.phpfsbiweekly <- cox.zph(pfsbiweeklycoxadj)
+test.phpfsbiweekly
+ggcoxzph(test.phpfsbiweekly)
+#Proportional hazards PFS XELOX
+
+test.phpfsxelox <- cox.zph(pfsxeloxcoxadj)
+test.phpfsxelox
+ggcoxzph(test.phpfsxelox)
+#Proportional hazards PFS ICE
+
+test.phpfsice <- cox.zph(pfsicecoxadj)
+test.phpfsice
+ggcoxzph(test.phpfsice)
+#Proportional hazards RFS BIOREC
+
+test.phrfsbiorec <- cox.zph(rfsbioreccoxadj)
+test.phrfsbiorec
+ggcoxzph(test.phrfsbiorec)
+#Proportional hazards RFS RECCET
+
+test.phrfsreccet <- cox.zph(rfsreccetcoxadj)
+test.phrfsreccet
+ggcoxzph(test.phrfsreccet)
+#Proportional hazards RFS REBECCA
+
+test.phrfsrebecca <- cox.zph(rfsrebeccacoxadj)
+test.phrfsrebecca
+ggcoxzph(test.phrfsrebecca)
+#Proportional hazards OS HAI 1
+
+test.phoshai1 <- cox.zph(oshai1coxadj)
+test.phoshai1
+ggcoxzph(test.phoshai1)
+#Proportional hazards OS HAI 2
+
+test.phoshai2 <- cox.zph(oshai2coxadj)
+test.phoshai2
+ggcoxzph(test.phoshai2)
+#Proportional hazards OS Biweekly
+
+test.phosbiweekly <- cox.zph(osbiweeklycoxadj)
+test.phosbiweekly
+ggcoxzph(test.phosbiweekly)
+#Proportional hazards OS XELOX
+
+test.phosxelox <- cox.zph(osxeloxcoxadj)
+test.phosxelox
+ggcoxzph(test.phosxelox)
+#Proportional hazards OS ICE
+
+test.phosice <- cox.zph(osicecoxadj)
+test.phosice
+ggcoxzph(test.phosice)
+#Proportional hazards OS BIOREC
+
+test.phosbiorec <- cox.zph(osbioreccoxadj)
+test.phosbiorec
+ggcoxzph(test.phosbiorec)
+#Proportional hazards OS RECCET
+test.phosreccet <- cox.zph(osreccetcoxadj)
+test.phosreccet
+ggcoxzph(test.phosreccet)
+#Proportional hazards OS REBECCA
+
+test.phosrebecca <- cox.zph(osrebeccacoxadj)
+test.phosrebecca
+ggcoxzph(test.phosrebecca)
+
+#Testing influence of outliers PFS
+
+#HAI 1 PFS outliers
+ggcoxdiagnostics(pfshai1coxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(pfshai1coxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#HAI 2 PFS outliers
+ggcoxdiagnostics(pfshai2coxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(pfshai2coxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#Biweekly PFS outliers
+ggcoxdiagnostics(pfsbiweeklycoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(pfsbiweeklycoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#XELOX PFS outliers
+ggcoxdiagnostics(pfsxeloxcoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(pfsxeloxcoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#ICE PFS outliers
+ggcoxdiagnostics(pfsicecoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(pfsicecoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#BIOREC RFS outliers
+ggcoxdiagnostics(rfsbioreccoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(rfsbioreccoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#RECCET RFS outliers
+ggcoxdiagnostics(rfsreccetcoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(rfsreccetcoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#REBECCA RFS outliers
+ggcoxdiagnostics(rfsrebeccacoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(rfsrebeccacoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+
+#Testing influence of outliers OS
+
+#HAI 1 OS outliers
+ggcoxdiagnostics(oshai1coxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(oshai1coxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#HAI 2 OS outliers
+ggcoxdiagnostics(oshai2coxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(oshai2coxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#Biweekly OS outliers
+ggcoxdiagnostics(osbiweeklycoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osbiweeklycoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#XELOX OS outliers
+ggcoxdiagnostics(osxeloxcoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osxeloxcoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#ICE OS outliers
+ggcoxdiagnostics(osicecoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osicecoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#BIOREC OS outliers
+ggcoxdiagnostics(osbioreccoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osbioreccoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#RECCET OS outliers
+ggcoxdiagnostics(osreccetcoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osreccetcoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+#REBECCA OS outliers
+ggcoxdiagnostics(osrebeccacoxadj, type = "dfbeta",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(osrebeccacoxadj, type = "deviance",
+                 linear.predictions = FALSE, ggtheme = theme_bw())
+
+
+#Testing non-linearity PFS
+
+#Make complete case for CEA dataset
+dnewccykl40 <- dnew[complete.cases(dnew[ , c("log2ykl40")]), ] 
+#Make complete case for CA19-9 dataset
+dnewccil6 <- dnew[complete.cases(dnew[ , c("log2il6")]), ] 
+
+#Make complete case for CEA dataset in REBECCA cohort
+rebdnewccykl40 <- rebdnew[complete.cases(rebdnew[ , c("log2ykl40")]), ] 
+#Make complete case for CA19-9 dataset in REBECCA cohort
+rebdnewccil6 <- rebdnew[complete.cases(rebdnew[ , c("log2il6")]), ] 
+
+# Non-linearity in HAI 1 CEA PFS
+nlpfslog2ykl40hai1<-coxph(Surv(progtime, prog) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="HAI1"))
+nlpfslog2ykl40hai1
+ggcoxfunctional(nlpfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in HAI 1 CA19-9 PFS
+nlpfslog2il6hai1<-coxph(Surv(progtime, prog) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="HAI1"))
+nlpfslog2il6hai1
+ggcoxfunctional(nlpfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in HAI 2 CEA PFS
+nlpfslog2ykl40hai2<-coxph(Surv(progtime, prog) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="HAI2"))
+nlpfslog2ykl40hai2
+ggcoxfunctional(nlpfslog2ykl40hai2, data = dnewccykl40)
+
+# Non-linearity in HAI 2 CA19-9 PFS
+nlpfslog2il6hai2<-coxph(Surv(progtime, prog) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="HAI2"))
+nlpfslog2il6hai2
+ggcoxfunctional(nlpfslog2il6hai2, data = dnewccil6)
+
+# Non-linearity in Biweekly CEA PFS
+nlpfslog2ykl40hai1<-coxph(Surv(progtime, prog) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="Biweekly"))
+nlpfslog2ykl40hai1
+ggcoxfunctional(nlpfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in Biweekly CA19-9 PFS
+nlpfslog2il6hai1<-coxph(Surv(progtime, prog) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="Biweekly"))
+nlpfslog2il6hai1
+ggcoxfunctional(nlpfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in XELOX CEA PFS
+nlpfslog2ykl40hai1<-coxph(Surv(progtime, prog) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="XELOX"))
+nlpfslog2ykl40hai1
+ggcoxfunctional(nlpfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in XELOX CA19-9 PFS
+nlpfslog2il6hai1<-coxph(Surv(progtime, prog) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="XELOX"))
+nlpfslog2il6hai1
+ggcoxfunctional(nlpfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in ICE CEA PFS
+nlpfslog2ykl40hai1<-coxph(Surv(progtime, prog) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="ICE"))
+nlpfslog2ykl40hai1
+ggcoxfunctional(nlpfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in ICE CA19-9 PFS
+nlpfslog2il6hai1<-coxph(Surv(progtime, prog) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="ICE"))
+nlpfslog2il6hai1
+ggcoxfunctional(nlpfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in BIOREC CEA PFS
+nlrfslog2ykl40hai1<-coxph(Surv(rectime, rec) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="BIOREC"))
+nlrfslog2ykl40hai1
+ggcoxfunctional(nlrfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in BIOREC CA19-9 PFS
+nlrfslog2il6hai1<-coxph(Surv(rectime, rec) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="BIOREC"))
+nlrfslog2il6hai1
+ggcoxfunctional(nlrfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in RECCET CEA PFS
+nlrfslog2ykl40hai1<-coxph(Surv(rectime, rec) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="RECCET"))
+nlrfslog2ykl40hai1
+ggcoxfunctional(nlrfslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in RECCET CA19-9 PFS
+nlrfslog2il6hai1<-coxph(Surv(rectime, rec) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="RECCET"))
+nlrfslog2il6hai1
+ggcoxfunctional(nlrfslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in REBECCA CEA PFS
+nlrfslog2ykl40hai1<-coxph(Surv(rectime, rec) ~ log2ykl40+I(log2ykl40^2), data = rebdnewccykl40)
+nlrfslog2ykl40hai1
+ggcoxfunctional(nlrfslog2ykl40hai1, data = rebdnewccykl40)
+
+# Non-linearity in REBECCA CA19-9 PFS
+nlrfslog2il6hai1<-coxph(Surv(rectime, rec) ~ log2il6+I(log2il6^2), data = rebdnewccil6)
+nlrfslog2il6hai1
+ggcoxfunctional(nlrfslog2il6hai1, data = rebdnewccil6)
+
+
+#Non-linearity in OS
+
+# Non-linearity in HAI 1 CEA OS
+nloslog2ykl40hai1<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="HAI1"))
+nloslog2ykl40hai1
+ggcoxfunctional(nloslog2ykl40hai1, data = dnewccykl40)
+
+# Non-linearity in HAI 1 CA19-9 OS
+nloslog2il6hai1<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="HAI1"))
+nloslog2il6hai1
+ggcoxfunctional(nloslog2il6hai1, data = dnewccil6)
+
+# Non-linearity in HAI 2 CEA OS
+nloslog2ykl40hai2<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="HAI2"))
+nloslog2ykl40hai2
+ggcoxfunctional(nloslog2ykl40hai2, data = dnewccykl40)
+
+# Non-linearity in HAI 2 CA19-9 OS
+nloslog2il6hai2<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="HAI2"))
+nloslog2il6hai2
+ggcoxfunctional(nloslog2il6hai2, data = dnewccil6)
+
+# Non-linearity in Biweekly CEA OS
+nloslog2ykl40biweekly<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="Biweekly"))
+nloslog2ykl40biweekly
+ggcoxfunctional(nloslog2ykl40biweekly, data = dnewccykl40)
+
+# Non-linearity in Biweekly CA19-9 OS
+nloslog2il6biweekly<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="Biweekly"))
+nloslog2il6biweekly
+ggcoxfunctional(nloslog2il6biweekly, data = dnewccil6)
+
+# Non-linearity in XELOX CEA OS
+nloslog2ykl40xelox<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="XELOX"))
+nloslog2ykl40xelox
+ggcoxfunctional(nloslog2ykl40xelox, data = dnewccykl40)
+
+# Non-linearity in XELOX CA19-9 OS
+nloslog2il6xelox<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="XELOX"))
+nloslog2il6xelox
+ggcoxfunctional(nloslog2il6xelox, data = dnewccil6)
+
+# Non-linearity in ICE CEA OS
+nloslog2ykl40ice<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="ICE"))
+nloslog2ykl40ice
+ggcoxfunctional(nloslog2ykl40ice, data = dnewccykl40)
+
+# Non-linearity in ICE CA19-9 OS
+nloslog2il6ice<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="ICE"))
+nloslog2il6ice
+ggcoxfunctional(nloslog2il6ice, data = dnewccil6)
+
+# Non-linearity in BIOREC CEA OS
+nloslog2ykl40biorec<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="BIOREC"))
+nloslog2ykl40biorec
+ggcoxfunctional(nloslog2ykl40biorec, data = dnewccykl40)
+
+# Non-linearity in BIOREC CA19-9 OS
+nloslog2il6biorec<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="BIOREC"))
+nloslog2il6biorec
+ggcoxfunctional(nloslog2il6biorec, data = dnewccil6)
+
+# Non-linearity in RECCET CEA OS
+nloslog2ykl40reccet<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = subset(dnewccykl40, proname=="RECCET"))
+nloslog2ykl40reccet
+ggcoxfunctional(nloslog2ykl40reccet, data = dnewccykl40)
+
+# Non-linearity in RECCET CA19-9 OS
+nloslog2il6reccet<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = subset(dnewccil6, proname=="RECCET"))
+nloslog2il6reccet
+ggcoxfunctional(nloslog2il6reccet, data = dnewccil6)
+
+# Non-linearity in REBECCA CEA OS
+nloslog2ykl40rebecca<-coxph(Surv(deathtime, death) ~ log2ykl40+I(log2ykl40^2), data = rebdnewccykl40)
+nloslog2ykl40rebecca
+ggcoxfunctional(nloslog2ykl40rebecca, data = rebdnewccykl40)
+
+# Non-linearity in REBECCA CA19-9 OS
+nloslog2il6rebecca<-coxph(Surv(deathtime, death) ~ log2il6+I(log2il6^2), data = rebdnewccil6)
+nloslog2il6rebecca
+ggcoxfunctional(nloslog2il6rebecca, data = rebdnewccil6)
+
+
